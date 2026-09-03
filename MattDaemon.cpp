@@ -1,6 +1,7 @@
 #include "MattDaemon.hpp"
 
 #include <csignal>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
@@ -17,15 +18,16 @@
 #endif
 
 /*
-sig_atomic_t -> guarante a int conform to the C/POSIX norm.
-volatile -> to be sure to save the g_signal into the Heap instead of the CPU memroy.
+sig_atomic_t -> integer read/written in one step, so a signal handler can set it safely.
+volatile -> tells the compiler to re-read g_signal from memory every time, never keep it
+            in a register, because the signal handler can change it at any moment.
 */
 static volatile sig_atomic_t g_signal = 0;
 
 static void signalHandler(int sig) { g_signal = sig; }
 
 MattDaemon::MattDaemon() {
-    mkdir("/home/fbardeau/Downloads/matt_daemon/matt_daemon", 0755);
+    mkdir("/var/log/matt_daemon", 0755);
 }
 
 MattDaemon::~MattDaemon() {
@@ -34,6 +36,7 @@ MattDaemon::~MattDaemon() {
     if (_serverFd != -1)
         close(_serverFd);
     if (_lockFd != -1) {
+        flock(_lockFd, LOCK_UN);
         close(_lockFd);
         unlink("/var/lock/matt_daemon.lock");
     }
@@ -159,7 +162,8 @@ void MattDaemon::serve() {
 
         int activite = select(maxFd + 1, &fds, nullptr, nullptr, nullptr);
         if (g_signal != 0) {
-            _log.log("INFO", "Signal handler.");
+            _log.log("INFO", "Signal handler: " + std::string(strsignal(g_signal))
+                             + " (" + std::to_string(g_signal) + ").");
             return;
         }
         if (activite == -1) {
